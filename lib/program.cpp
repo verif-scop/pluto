@@ -922,6 +922,7 @@ PlutoOptions *pluto_options_alloc() {
   options->scc_cluster = 0;
 
   options->readscop = 0;
+  options->dumpscop = 0;
 
   options->lastwriter = 0;
 

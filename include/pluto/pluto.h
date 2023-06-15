@@ -203,6 +203,9 @@ struct plutoOptions {
   /* Read input from a .scop file */
   int readscop;
 
+  /* Dump scheduled output into a .scop file */
+  int dumpscop;
+
   /* Use PIP as the ILP solver. */
   int pipsolve;
 

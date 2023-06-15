@@ -156,6 +156,8 @@ void usage_message(void) {
   fprintf(stdout,
           "       --readscop                Read input from a scoplib file\n");
   fprintf(stdout,
+          "       --dumpscop                Dump scheduled scop\n");
+  fprintf(stdout,
           "       --bee                     Generate pragmas for Bee+Cl@k\n\n");
   fprintf(stdout, "       --indent  | -i            Indent generated code "
                   "(disabled by default)\n");
@@ -255,6 +257,7 @@ int main(int argc, char *argv[]) {
     {"isldepstmtwise", no_argument, &options->isldepaccesswise, 0},
     {"isldepcoalesce", no_argument, &options->isldepcoalesce, 1},
     {"readscop", no_argument, &options->readscop, 1},
+    {"dumpscop", no_argument, &options->dumpscop, 1},    
     {"pipsolve", no_argument, &options->pipsolve, 1},
 #ifdef GLPK
     {"glpk", no_argument, &options->glpk, 1},
@@ -714,9 +717,39 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
     /* Since meta info about loops is printed to be processed by scripts - if
      * transformations are performed, changed loop order/iterator names will
      * be missed. */
-    gen_reg_tile_file(prog);
-
+    
     char *basec, *bname;
+    char *scopOutFileName;
+
+    // Pet does not generate openscop format, dumpscop not supported yet
+    if (!options->pet && options->dumpscop) {
+      pluto_populate_scop(scop, prog, context);
+
+      basec = strdup(srcFileName);
+      bname = basename(basec);
+
+      scopOutFileName = (char *)malloc(strlen(bname) + strlen(".afterscheduling.scop") + 1);
+
+      if (strlen(bname) >= 2 && !strcmp(bname + strlen(bname) - 2, ".c")) {
+        memcpy(scopOutFileName, bname, strlen(bname) - 2);
+        scopOutFileName[strlen(bname) - 2] = '\0';
+      } else {
+        scopOutFileName = (char *)malloc(strlen(bname) + strlen(".afterscheduling.scop") + 1);
+        strcpy(scopOutFileName, bname);
+      }
+      strcat(scopOutFileName, ".afterscheduling.scop");
+
+      FILE *new_scop_fp = fopen(scopOutFileName, "w");
+      osl_scop_print(new_scop_fp, scop);
+      fclose(new_scop_fp);
+      free(scopOutFileName);
+      free(basec);
+      fprintf(stdout, "[pluto] Scop dumped.\n");
+    } else if (options->pet && options->dumpscop) {
+      fprintf(stderr, "[Pluto] --dumpscop not support pet frontend yet\n");
+    }
+
+    gen_reg_tile_file(prog);
     char *outFileName;
     if (options->out_file == NULL) {
       /* Get basename, remove .c extension and append a new one */
@@ -730,7 +763,6 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
         memcpy(outFileName, bname, strlen(bname) - 2);
         outFileName[strlen(bname) - 2] = '\0';
       } else {
-        outFileName = (char *)malloc(strlen(bname) + strlen(".pluto.c") + 1);
         strcpy(outFileName, bname);
       }
       strcat(outFileName, ".pluto.c");
