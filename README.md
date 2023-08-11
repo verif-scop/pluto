@@ -29,6 +29,7 @@ We refer you to the [Dockerfile](./Dockerfile) for the step-by-step installation
 ```
 sudo docker build . -t pluto
 # this may take 30 min, decided by your network condition
+# Or you pull the image directly: docker pull hughshine/pluto-verif:latest
 sudo docker run -ti --rm pluto
 # open a container for testing (like `make test` in it) (and it will be removed when you exit)
 ```
