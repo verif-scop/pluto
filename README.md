@@ -26,6 +26,13 @@ Only with sequential "reordering/scheduling", the final model could gain signifi
 
 We refer you to the [Dockerfile](./Dockerfile) for the step-by-step installation.
 
+```
+sudo docker build . -t pluto
+# this may take 30 min, decided by your network condition
+sudo docker run -ti --rm pluto
+# open a container for testing (like `make test` in it) (and it will be removed when you exit)
+```
+
 Though the newest pluto repo has revised installing instructions, but we recommend to follow the following. Due to time limit, we only test on Ubuntu 20.04.2 LTS, but we believe it should run on similar environments.
 
 1. install `autoconf`, `automake`, and `libtool`.
