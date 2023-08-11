@@ -617,6 +617,38 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
         pluto_options_free(options);
         return 8;
       }
+
+      {
+        char *basec, *bname;
+        char *scopOutFileName;
+
+        // Pet does not generate openscop format, dumpscop not supported yet
+        if (!options->pet && options->dumpscop) {
+          basec = strdup(srcFileName);
+          bname = basename(basec);
+
+          scopOutFileName = (char *)malloc(strlen(bname) + strlen(".beforescheduling.scop") + 1);
+
+          if (strlen(bname) >= 2 && !strcmp(bname + strlen(bname) - 2, ".c")) {
+            memcpy(scopOutFileName, bname, strlen(bname) - 2);
+            scopOutFileName[strlen(bname) - 2] = '\0';
+          } else {
+            scopOutFileName = (char *)malloc(strlen(bname) + strlen(".beforescheduling.scop") + 1);
+            strcpy(scopOutFileName, bname);
+          }
+          strcat(scopOutFileName, ".beforescheduling.scop");
+
+          FILE *in_scop_fp = fopen(scopOutFileName, "w");
+          osl_scop_print(in_scop_fp, scop);
+          fclose(in_scop_fp);
+          free(scopOutFileName);
+          free(basec);
+          fprintf(stdout, "[pluto] inscop dumped.\n");
+        } else if (options->pet && options->dumpscop) {
+          fprintf(stderr, "[Pluto] --dumpscop not support pet frontend yet\n");
+        }
+      }
+
       FILE *srcfp = fopen(".srcfilename", "w");
       if (srcfp) {
         fprintf(srcfp, "%s\n", srcFileName);
@@ -744,7 +776,7 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
       fclose(new_scop_fp);
       free(scopOutFileName);
       free(basec);
-      fprintf(stdout, "[pluto] Scop dumped.\n");
+      fprintf(stdout, "[pluto] opt-scop dumped.\n");
     } else if (options->pet && options->dumpscop) {
       fprintf(stderr, "[Pluto] --dumpscop not support pet frontend yet\n");
     }
