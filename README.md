@@ -5,6 +5,7 @@ This fork of the original Pluto repository (https://github.com/bondhugula/pluto)
 Following changes are made:
 1. adding `--dumpscop` option (for non-pet frontend), to dump scheduled polyhedral model in openscop format (with `.afterscheduling.scop` suffix).
 2. `--dumpscop` will also dump polyhedral model for the input scop (just after polyhedral extraction, before any further scheduling) in openscop format (with `.beforescheduling.scop`), no matter `--readscop` is enabled or not.
+3. redirect piplib and cloog to texlive-free upstream...
 
 The dumped files are used for validation. This minimal-changed fork is still under the MIT LICENSE. 
 
