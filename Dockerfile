@@ -1,5 +1,17 @@
+ARG PLUTO_GIT_REMOTE=https://github.com/verif-scop/pluto.git
+ARG PLUTO_GIT_COMMIT=unknown
+
 FROM ubuntu:20.04
-LABEL com.plutoverif.version="1.0"
+
+ARG PLUTO_GIT_REMOTE
+ARG PLUTO_GIT_COMMIT
+
+LABEL com.plutoverif.version="1.0" \
+      com.plutoverif.remote="${PLUTO_GIT_REMOTE}" \
+      com.plutoverif.commit="${PLUTO_GIT_COMMIT}"
+
+ENV PLUTO_GIT_REMOTE="${PLUTO_GIT_REMOTE}" \
+    PLUTO_GIT_COMMIT="${PLUTO_GIT_COMMIT}"
 
 ENV TZ=Europe/Minsk
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
@@ -19,8 +31,14 @@ COPY . /pluto/
 
 WORKDIR /pluto/
 
-RUN git fetch origin && git reset --hard origin/master && git clean -d -f
-RUN git submodule init && git submodule update
+RUN if [ -d .git ]; then \
+      actual_commit="$(git rev-parse HEAD)"; \
+      if [ "$PLUTO_GIT_COMMIT" != "unknown" ] && [ "$actual_commit" != "$PLUTO_GIT_COMMIT" ]; then \
+        echo "Pluto commit mismatch: expected $PLUTO_GIT_COMMIT got $actual_commit" >&2; \
+        exit 1; \
+      fi; \
+    fi
+RUN git submodule update --init --recursive
 RUN ./autogen.sh && ./configure 
 RUN make && make install
 
