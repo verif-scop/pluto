@@ -11,6 +11,7 @@
  *
  */
 #include <assert.h>
+#include <inttypes.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -24,6 +25,158 @@
 #include "pluto/matrix.h"
 #include "pluto/pluto.h"
 #include "program.h"
+
+static int iss_bridge_find_name_pos(const PlutoConstraints *cst,
+                                    const char *name) {
+  if (cst->names == NULL)
+    return -1;
+
+  for (unsigned i = 0; i + 1 < cst->ncols; i++) {
+    if (cst->names[i] && strcmp(cst->names[i], name) == 0) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+static int64_t iss_bridge_coeff_for_var(const PlutoConstraints *cst, int row,
+                                        const char *name) {
+  int pos = iss_bridge_find_name_pos(cst, name);
+  if (pos < 0)
+    return 0;
+  return cst->val[row][pos];
+}
+
+static bool iss_bridge_row_is_zero(const PlutoConstraints *cst, int row) {
+  for (unsigned j = 0; j < cst->ncols; j++) {
+    if (cst->val[row][j] != 0)
+      return false;
+  }
+  return true;
+}
+
+static int iss_bridge_domain_row_count(const PlutoConstraints *cst) {
+  int count = 0;
+  for (unsigned i = 0; i < cst->nrows; i++) {
+    if (iss_bridge_row_is_zero(cst, i))
+      continue;
+    count += cst->is_eq[i] ? 2 : 1;
+  }
+  return count;
+}
+
+static void iss_bridge_emit_coeff_vector(FILE *fp, const PlutoConstraints *cst,
+                                         int row, char **var_order,
+                                         int var_count, bool negate) {
+  for (int i = 0; i < var_count; i++) {
+    int64_t coeff = iss_bridge_coeff_for_var(cst, row, var_order[i]);
+    if (negate)
+      coeff = -coeff;
+    if (i > 0)
+      fprintf(fp, ",");
+    fprintf(fp, "%" PRId64, coeff);
+  }
+}
+
+static void iss_bridge_emit_domain_rows(FILE *fp, const PlutoConstraints *cst,
+                                        char **var_order, int var_count) {
+  for (unsigned i = 0; i < cst->nrows; i++) {
+    int64_t constant = cst->val[i][cst->ncols - 1];
+    if (iss_bridge_row_is_zero(cst, i))
+      continue;
+
+    fprintf(fp, "ROW ");
+    iss_bridge_emit_coeff_vector(fp, cst, i, var_order, var_count, true);
+    fprintf(fp, "|%" PRId64 "\n", constant);
+
+    if (cst->is_eq[i]) {
+      fprintf(fp, "ROW ");
+      iss_bridge_emit_coeff_vector(fp, cst, i, var_order, var_count, false);
+      fprintf(fp, "|%" PRId64 "\n", -constant);
+    }
+  }
+}
+
+static void iss_bridge_emit_cut_row(FILE *fp, const PlutoConstraints *cut,
+                                    char **var_order, int var_count) {
+  assert(cut->nrows == 1);
+  fprintf(fp, "CUT ");
+  iss_bridge_emit_coeff_vector(fp, cut, 0, var_order, var_count, false);
+  fprintf(fp, "|%" PRId64 "\n", cut->val[0][cut->ncols - 1]);
+}
+
+static void pluto_dump_iss_bridge(FILE *fp, PlutoProg *prog,
+                                  PlutoConstraints **before_domains,
+                                  int before_nstmts,
+                                  PlutoConstraints **base_cuts,
+                                  int num_base_cuts) {
+  int iter_dim = 0;
+  if (before_nstmts > 0 && prog->nstmts > 0) {
+    iter_dim = prog->stmts[0]->dim;
+  } else if (prog->nstmts > 0) {
+    iter_dim = prog->stmts[0]->dim;
+  }
+
+  int var_count = prog->npar + iter_dim;
+  char **var_order = NULL;
+
+  if (var_count > 0) {
+    var_order = (char **)malloc(var_count * sizeof(char *));
+  }
+
+  for (int i = 0; i < prog->npar; i++) {
+    var_order[i] = prog->params[i];
+  }
+  for (int i = 0; i < iter_dim; i++) {
+    var_order[prog->npar + i] = prog->stmts[0]->iterators[i];
+  }
+
+  fprintf(fp, "VAR_ORDER %d\n", var_count);
+  for (int i = 0; i < var_count; i++) {
+    fprintf(fp, "VAR %s\n", var_order[i]);
+  }
+
+  fprintf(fp, "BEFORE_STMTS %d\n", before_nstmts);
+  for (int i = 0; i < before_nstmts; i++) {
+    fprintf(fp, "BEFORE_DOMAIN %d\n",
+            iss_bridge_domain_row_count(before_domains[i]));
+    iss_bridge_emit_domain_rows(fp, before_domains[i], var_order, var_count);
+  }
+
+  fprintf(fp, "AFTER_STMTS %d\n", prog->nstmts);
+  for (unsigned i = 0; i < prog->nstmts; i++) {
+    fprintf(fp, "AFTER_DOMAIN %d\n",
+            iss_bridge_domain_row_count(prog->stmts[i]->domain));
+    iss_bridge_emit_domain_rows(fp, prog->stmts[i]->domain, var_order,
+                                var_count);
+  }
+
+  fprintf(fp, "CUTS %d\n", num_base_cuts);
+  for (int i = 0; i < num_base_cuts; i++) {
+    iss_bridge_emit_cut_row(fp, base_cuts[i], var_order, var_count);
+  }
+
+  fprintf(fp, "STMT_WITNESSES %d\n", prog->nstmts);
+  int pieces_per_parent = 1;
+  for (int i = 0; i < num_base_cuts; i++) {
+    pieces_per_parent *= 2;
+  }
+  for (unsigned i = 0; i < prog->nstmts; i++) {
+    int parent = pieces_per_parent == 0 ? 0 : (int)i / pieces_per_parent;
+    int piece_index = pieces_per_parent == 0 ? 0 : (int)i % pieces_per_parent;
+    fprintf(fp, "STMT_WITNESS %d ", parent);
+    for (int j = 0; j < num_base_cuts; j++) {
+      if (j > 0)
+        fprintf(fp, ",");
+      fprintf(fp, "%s", ((piece_index >> j) & 1) ? "ge" : "lt");
+    }
+    fprintf(fp, "\n");
+  }
+  fprintf(fp, "END\n");
+
+  free(var_order);
+}
 
 PlutoConstraints **get_lin_ind_constraints(PlutoMatrix *mat, int *orthonum) {
   int i, j, k;
@@ -415,6 +568,9 @@ void pluto_iss_dep(PlutoProg *prog) {
   int npar = prog->npar;
   int i, j;
   PlutoContext *context = prog->context;
+  PlutoOptions *options = context->options;
+  PlutoConstraints **before_domains = NULL;
+  int before_nstmts = prog->nstmts;
 
   if (prog->nstmts == 0)
     return;
@@ -435,6 +591,14 @@ void pluto_iss_dep(PlutoProg *prog) {
 
   if (ndeps == 0)
     return;
+
+  if (options->dump_iss_bridge) {
+    before_domains = (PlutoConstraints **)malloc(before_nstmts *
+                                                 sizeof(PlutoConstraints *));
+    for (i = 0; i < before_nstmts; i++) {
+      before_domains[i] = pluto_constraints_dup(prog->stmts[i]->domain);
+    }
+  }
 
   int ndim = prog->stmts[0]->dim;
 
@@ -483,7 +647,8 @@ void pluto_iss_dep(PlutoProg *prog) {
   int num_cuts;
 
   PlutoConstraints **cuts = NULL;
-  int *pos = NULL;
+  PlutoConstraints **base_cuts = NULL;
+  int num_base_cuts = 0;
   num_cuts = 0;
 
   for (i = 0; i < ndim; i++) {
@@ -496,10 +661,12 @@ void pluto_iss_dep(PlutoProg *prog) {
     if (h) {
       PlutoConstraints *negh = pluto_hyperplane_get_negative_half_space(h);
       PlutoConstraints *posh = pluto_hyperplane_get_non_negative_half_space(h);
+      base_cuts = (PlutoConstraints **)realloc(
+          base_cuts, (num_base_cuts + 1) * sizeof(PlutoConstraints *));
+      base_cuts[num_base_cuts++] = pluto_constraints_dup(posh);
 
       if (num_cuts == 0) {
         cuts = (PlutoConstraints **)malloc(2 * sizeof(PlutoConstraints *));
-        pos = (int *)malloc(2 * sizeof(sizeof(int)));
         cuts[0] = negh;
         cuts[1] = posh;
         num_cuts = 2;
@@ -535,7 +702,19 @@ void pluto_iss_dep(PlutoProg *prog) {
     pluto_constraints_free(cuts[i]);
   }
   free(cuts);
-  free(pos);
+  if (options->dump_iss_bridge) {
+    pluto_dump_iss_bridge(stdout, prog, before_domains, before_nstmts,
+                          base_cuts, num_base_cuts);
+  }
+  for (i = 0; i < before_nstmts; i++) {
+    if (before_domains)
+      pluto_constraints_free(before_domains[i]);
+  }
+  free(before_domains);
+  for (i = 0; i < num_base_cuts; i++) {
+    pluto_constraints_free(base_cuts[i]);
+  }
+  free(base_cuts);
 
   for (i = 0; i < ndim; i++) {
     free(long_dep_doms[i]);

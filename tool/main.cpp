@@ -134,6 +134,7 @@ void usage_message(void) {
                   "glpk or gurobi for solving LPs]\n");
   fprintf(stdout, "\n   Index Set Splitting        \n");
   fprintf(stdout, "       --iss                  \n");
+  fprintf(stdout, "       --dump-iss-bridge      Dump ISS bridge and exit after ISS\n");
   fprintf(
       stdout,
       "\n   Code generation       Options to control Cloog code generation\n");
@@ -222,6 +223,7 @@ int main(int argc, char *argv[]) {
     {"parallelize", no_argument, &options->parallel, 1},
     {"innerpar", no_argument, &options->innerpar, 1},
     {"iss", no_argument, &options->iss, 1},
+    {"dump-iss-bridge", no_argument, &options->dump_iss_bridge, 1},
     {"unrolljam", no_argument, &options->unrolljam, 1},
     {"nounrolljam", no_argument, &options->unrolljam, 0},
     {"bee", no_argument, &options->bee, 1},
@@ -687,6 +689,11 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
 
   if (options->iss) {
     pluto_iss_dep(prog);
+    if (options->dump_iss_bridge) {
+      pluto_prog_free(prog);
+      pluto_context_free(context);
+      return 0;
+    }
   }
 
   double t_start = rtclock();

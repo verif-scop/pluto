@@ -859,6 +859,7 @@ PlutoOptions *pluto_options_alloc() {
   options->per_cc_obj = 0;
 
   options->iss = 0;
+  options->dump_iss_bridge = 0;
   options->unrolljam = 1;
 
   /* Unroll/jam factor */

@@ -237,6 +237,9 @@ struct plutoOptions {
   /* Index set splitting */
   int iss;
 
+  /* Dump a lossless ISS bridge for external validation and exit after ISS. */
+  int dump_iss_bridge;
+
   /* Output file name supplied from -o */
   char *out_file;
 
