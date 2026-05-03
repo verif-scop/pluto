@@ -22,6 +22,14 @@
 #include "tile_size_selection_model.h"
 #include "transforms.h"
 
+static PlutoPhaseDumpHook g_post_tile_dump_hook = NULL;
+static void *g_post_tile_dump_hook_user = NULL;
+
+void pluto_set_post_tile_dump_hook(PlutoPhaseDumpHook hook, void *user) {
+  g_post_tile_dump_hook = hook;
+  g_post_tile_dump_hook_user = user;
+}
+
 /* Read tile sizes from file tile.sizes */
 static int read_tile_sizes(int *tile_sizes, int *second_level_tile_size_ratios,
                            int num_tile_dims, Stmt **stmts, int nstmts,
@@ -284,7 +292,12 @@ void pluto_tile(PlutoProg *prog) {
     /* pluto_print_hyperplane_properties(prog); */
   }
 
-  if (options->diamondtile) {
+  if (g_post_tile_dump_hook) {
+    g_post_tile_dump_hook(prog, g_post_tile_dump_hook_user);
+  }
+
+  /* Honor --nointratileopt for the diamond-specific intra-tile reschedule. */
+  if (options->diamondtile && options->intratileopt) {
     int retval;
     retval = pluto_diamond_tile_reschedule(prog);
 

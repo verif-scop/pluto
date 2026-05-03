@@ -40,6 +40,63 @@
 
 #include "pet.h"
 
+static char *make_scop_dump_filename(const char *srcFileName,
+                                     const char *suffix) {
+  char *basec = strdup(srcFileName);
+  char *bname = basename(basec);
+  char *out = (char *)malloc(strlen(bname) + strlen(suffix) + 1);
+
+  if (strlen(bname) >= 2 && !strcmp(bname + strlen(bname) - 2, ".c")) {
+    memcpy(out, bname, strlen(bname) - 2);
+    out[strlen(bname) - 2] = '\0';
+  } else {
+    strcpy(out, bname);
+  }
+  strcat(out, suffix);
+  free(basec);
+  return out;
+}
+
+static void dump_scop_snapshot(const char *srcFileName, osl_scop_p scop,
+                               PlutoProg *prog, PlutoContext *context,
+                               const char *suffix, const char *tag) {
+  char *scopOutFileName = make_scop_dump_filename(srcFileName, suffix);
+  osl_scop_p dump_scop = osl_scop_clone(scop);
+  FILE *scop_fp = fopen(scopOutFileName, "w");
+
+  if (!scop_fp) {
+    fprintf(stderr, "[Pluto] Can't open file '%s' for writing\n",
+            scopOutFileName);
+    free(scopOutFileName);
+    osl_scop_free(dump_scop);
+    return;
+  }
+
+  if (prog != NULL) {
+    pluto_populate_scop(dump_scop, prog, context);
+  }
+  osl_scop_print(scop_fp, dump_scop);
+  fclose(scop_fp);
+  fprintf(stdout, "[pluto] %s dumped.\n", tag);
+  free(scopOutFileName);
+  osl_scop_free(dump_scop);
+}
+
+typedef struct {
+  const char *srcFileName;
+  osl_scop_p scop;
+  PlutoContext *context;
+} PlutoDumpHookState;
+
+static void dump_post_tile_snapshot(PlutoProg *prog, void *user) {
+  PlutoDumpHookState *state = (PlutoDumpHookState *)user;
+  if (!state || !state->srcFileName || !state->scop || !state->context) {
+    return;
+  }
+  dump_scop_snapshot(state->srcFileName, state->scop, prog, state->context,
+                     ".posttile.scop", "post-tile-scop");
+}
+
 void usage_message(void) {
   fprintf(stdout, "Usage: polycc <input.c> [options] [-o output]\n");
   fprintf(stdout, "\nOptions:\n");
@@ -134,7 +191,6 @@ void usage_message(void) {
                   "glpk or gurobi for solving LPs]\n");
   fprintf(stdout, "\n   Index Set Splitting        \n");
   fprintf(stdout, "       --iss                  \n");
-  fprintf(stdout, "       --dump-iss-bridge      Dump ISS bridge and exit after ISS\n");
   fprintf(
       stdout,
       "\n   Code generation       Options to control Cloog code generation\n");
@@ -223,7 +279,6 @@ int main(int argc, char *argv[]) {
     {"parallelize", no_argument, &options->parallel, 1},
     {"innerpar", no_argument, &options->innerpar, 1},
     {"iss", no_argument, &options->iss, 1},
-    {"dump-iss-bridge", no_argument, &options->dump_iss_bridge, 1},
     {"unrolljam", no_argument, &options->unrolljam, 1},
     {"nounrolljam", no_argument, &options->unrolljam, 0},
     {"bee", no_argument, &options->bee, 1},
@@ -621,31 +676,10 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
       }
 
       {
-        char *basec, *bname;
-        char *scopOutFileName;
-
         // Pet does not generate openscop format, dumpscop not supported yet
         if (!options->pet && options->dumpscop) {
-          basec = strdup(srcFileName);
-          bname = basename(basec);
-
-          scopOutFileName = (char *)malloc(strlen(bname) + strlen(".beforescheduling.scop") + 1);
-
-          if (strlen(bname) >= 2 && !strcmp(bname + strlen(bname) - 2, ".c")) {
-            memcpy(scopOutFileName, bname, strlen(bname) - 2);
-            scopOutFileName[strlen(bname) - 2] = '\0';
-          } else {
-            scopOutFileName = (char *)malloc(strlen(bname) + strlen(".beforescheduling.scop") + 1);
-            strcpy(scopOutFileName, bname);
-          }
-          strcat(scopOutFileName, ".beforescheduling.scop");
-
-          FILE *in_scop_fp = fopen(scopOutFileName, "w");
-          osl_scop_print(in_scop_fp, scop);
-          fclose(in_scop_fp);
-          free(scopOutFileName);
-          free(basec);
-          fprintf(stdout, "[pluto] inscop dumped.\n");
+          dump_scop_snapshot(srcFileName, scop, NULL, context,
+                             ".beforescheduling.scop", "inscop");
         } else if (options->pet && options->dumpscop) {
           fprintf(stderr, "[Pluto] --dumpscop not support pet frontend yet\n");
         }
@@ -689,11 +723,6 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
 
   if (options->iss) {
     pluto_iss_dep(prog);
-    if (options->dump_iss_bridge) {
-      pluto_prog_free(prog);
-      pluto_context_free(context);
-      return 0;
-    }
   }
 
   double t_start = rtclock();
@@ -714,6 +743,19 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
     pluto_transformations_pretty_print(prog);
   }
 
+  if (!options->pet && options->dumpscop) {
+    dump_scop_snapshot(srcFileName, scop, prog, context, ".midtransform.scop",
+                       "mid-scop");
+  }
+
+  PlutoDumpHookState post_tile_dump_state = {srcFileName, scop, context};
+  if (!options->pet && options->dumpscop) {
+    pluto_set_post_tile_dump_hook(dump_post_tile_snapshot,
+                                  &post_tile_dump_state);
+  } else {
+    pluto_set_post_tile_dump_hook(NULL, NULL);
+  }
+
   if (options->tile) {
     pluto_tile(prog);
   } else {
@@ -721,6 +763,8 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
       pluto_intra_tile_optimize(prog, 0);
     }
   }
+
+  pluto_set_post_tile_dump_hook(NULL, NULL);
 
   if (options->parallel && !options->tile && !options->identity) {
     /* Obtain wavefront/pipelined parallelization by skewing if
@@ -757,38 +801,16 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
      * transformations are performed, changed loop order/iterator names will
      * be missed. */
     
-    char *basec, *bname;
-    char *scopOutFileName;
-
     // Pet does not generate openscop format, dumpscop not supported yet
     if (!options->pet && options->dumpscop) {
-      pluto_populate_scop(scop, prog, context);
-
-      basec = strdup(srcFileName);
-      bname = basename(basec);
-
-      scopOutFileName = (char *)malloc(strlen(bname) + strlen(".afterscheduling.scop") + 1);
-
-      if (strlen(bname) >= 2 && !strcmp(bname + strlen(bname) - 2, ".c")) {
-        memcpy(scopOutFileName, bname, strlen(bname) - 2);
-        scopOutFileName[strlen(bname) - 2] = '\0';
-      } else {
-        scopOutFileName = (char *)malloc(strlen(bname) + strlen(".afterscheduling.scop") + 1);
-        strcpy(scopOutFileName, bname);
-      }
-      strcat(scopOutFileName, ".afterscheduling.scop");
-
-      FILE *new_scop_fp = fopen(scopOutFileName, "w");
-      osl_scop_print(new_scop_fp, scop);
-      fclose(new_scop_fp);
-      free(scopOutFileName);
-      free(basec);
-      fprintf(stdout, "[pluto] opt-scop dumped.\n");
+      dump_scop_snapshot(srcFileName, scop, prog, context,
+                         ".afterscheduling.scop", "opt-scop");
     } else if (options->pet && options->dumpscop) {
       fprintf(stderr, "[Pluto] --dumpscop not support pet frontend yet\n");
     }
 
     gen_reg_tile_file(prog);
+    char *basec, *bname;
     char *outFileName;
     if (options->out_file == NULL) {
       /* Get basename, remove .c extension and append a new one */

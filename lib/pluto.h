@@ -486,6 +486,10 @@ typedef struct band {
   struct band **children;
 } Band;
 
+typedef void (*PlutoPhaseDumpHook)(PlutoProg *prog, void *user);
+
+void pluto_set_post_tile_dump_hook(PlutoPhaseDumpHook hook, void *user);
+
 void dep_alloc_members(Dep *);
 void dep_free(Dep *);
 

@@ -5,6 +5,7 @@
 *.swp
 # python byte compiled files in orio
 *.pyc
+__pycache__/
 *.scop
 test_plutolib
 test.sh
@@ -14,6 +15,12 @@ test/*.pluto.c
 test/*.opt.c
 test/*.par.c
 test/*.tiled.c
+*.pluto.c
+*.pluto.cloog
+.outfilename
+.regtile
+.srcfilename
+unit_tests
 tool/pluto
 tool/Makefile
 tool/Makefile.in

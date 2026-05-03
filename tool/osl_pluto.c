@@ -1253,7 +1253,7 @@ static void compute_deps_osl(osl_scop_p scop, PlutoProg *prog,
       dom = isl_set_intersect_params(dom, isl_set_copy(context));
 
       space = isl_space_alloc(ctx, scop->context->nb_parameters, niter,
-                              2 * niter + 1);
+                              stmt->scattering->nb_output_dims);
       if (scop->context->nb_parameters) {
         scop_params = (osl_strings_p)scop->parameters->data;
         space = set_names(space, isl_dim_param, scop_params->string);
@@ -1337,7 +1337,7 @@ static void compute_deps_osl(osl_scop_p scop, PlutoProg *prog,
         dom = isl_set_intersect_params(dom, isl_set_copy(context));
 
         space = isl_space_alloc(ctx, scop->context->nb_parameters, niter,
-                                2 * niter + 1);
+                                stmt->scattering->nb_output_dims);
         if (scop->context->nb_parameters) {
           scop_params = (osl_strings_p)scop->parameters->data;
           space = set_names(space, isl_dim_param, scop_params->string);
