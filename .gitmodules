@@ -1,24 +1,32 @@
 [submodule "isl"]
 	path = isl
 	url = https://github.com/bondhugula/isl-for-pluto.git
+	ignore = untracked
 [submodule "cloog-isl"]
 	path = cloog-isl
 	url = https://github.com/verif-scop/cloog.git
+	ignore = untracked
 [submodule "piplib"]
 	path = piplib
 	url = https://github.com/verif-scop/piplib.git
+	ignore = untracked
 [submodule "polylib"]
 	path = polylib
 	url =  https://github.com/vincentloechner/polylib.git
+	ignore = untracked
 [submodule "candl"]
 	path = candl
 	url = https://github.com/periscop/candl.git
+	ignore = untracked
 [submodule "clan"]
 	path = clan
 	url = https://github.com/periscop/clan.git
+	ignore = untracked
 [submodule "openscop"]
 	path = openscop
 	url = https://github.com/periscop/openscop.git
+	ignore = untracked
 [submodule "pet"]
 	path = pet
 	url = https://github.com/bondhugula/pet-for-pluto.git
+	ignore = untracked
