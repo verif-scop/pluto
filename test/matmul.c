@@ -1,5 +1,25 @@
 // CHECK: T(S1): (i, j, k)
 // TILE-PARALLEL: T(S1): (i/32, j/32, k/32, i, j, k)
+// READSCOP-MATMUL: ===DIRECT-LOG===
+// READSCOP-MATMUL-NOT: number of columns too small
+// READSCOP-MATMUL: [pluto] Number of deps: 6
+// READSCOP-MATMUL: [Pluto] After tile scheduling:
+// READSCOP-MATMUL: ===STAGE2-LOG===
+// READSCOP-MATMUL-NOT: number of columns too small
+// READSCOP-MATMUL: [pluto] Number of deps: 6
+// READSCOP-MATMUL: [Pluto] After tile scheduling:
+// READSCOP-MATMUL: ===DIRECT-SCOP===
+// READSCOP-MATMUL: # Iterator name
+// READSCOP-MATMUL: t2
+// READSCOP-MATMUL: ===STAGE2-SCOP===
+// READSCOP-MATMUL: # Iterator name
+// READSCOP-MATMUL: t2
+// READSCOP-MATMUL: ===DIRECT-CODE===
+// READSCOP-MATMUL: #pragma omp parallel for
+// READSCOP-MATMUL: for (t2=lbp;t2<=ubp;t2++) {
+// READSCOP-MATMUL: ===STAGE2-CODE===
+// READSCOP-MATMUL: #pragma omp parallel for
+// READSCOP-MATMUL: for (t2=lbp;t2<=ubp;t2++) {
 
 #define M 2048
 #define N 2048

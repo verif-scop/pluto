@@ -211,6 +211,40 @@ for file in $TESTS_UNROLL_JAM; do
     check_ret_val_emit_status
 done
 
+# Regression test for staged OpenScop input. A scheduled .scop should preserve
+# the same dependence count and outer parallel loop as the direct .scop path.
+echo -e "\nTest staged Openscop input"
+echo "=========================="
+printf '%-50s ' "@top_srcdir@/test/matmul.c with staged --readscop"
+tmpdir=$(mktemp -d)
+(
+    cd "$tmpdir" &&
+    @top_builddir@/clan/clan @top_srcdir@/test/matmul.c -o orig.scop >/dev/null 2>&1 &&
+    @top_builddir@/tool/pluto --readscop --tile --parallel --nointratileopt --nodiamond-tile --noprevector --smartfuse --nounrolljam --rar orig.scop > direct.log 2>&1 &&
+    cat orig.scop | @top_builddir@/tool/pluto --readscop --silent --tile --parallel --nointratileopt --nodiamond-tile --noprevector --smartfuse --nounrolljam --rar stdin > direct.scop &&
+    cat orig.scop | @top_builddir@/tool/pluto --readscop --silent --notile --noparallel --nointratileopt --nodiamond-tile --noprevector --smartfuse --nounrolljam --rar stdin > stage1.scop &&
+    @top_builddir@/tool/pluto --readscop --identity --tile --parallel --nointratileopt --nodiamond-tile --noprevector --smartfuse --nounrolljam --rar stage1.scop > stage2.log 2>&1 &&
+    cat stage1.scop | @top_builddir@/tool/pluto --readscop --silent --identity --tile --parallel --nointratileopt --nodiamond-tile --noprevector --smartfuse --nounrolljam --rar stdin > stage2.scop &&
+    {
+        echo '===DIRECT-LOG==='
+        cat direct.log
+        echo '===STAGE2-LOG==='
+        cat stage2.log
+        echo '===DIRECT-SCOP==='
+        sed -n '/<loop>/,/<\/loop>/p' direct.scop
+        echo '===STAGE2-SCOP==='
+        sed -n '/<loop>/,/<\/loop>/p' stage2.scop
+        echo '===DIRECT-CODE==='
+        sed -n '/omp parallel for/,+2p' orig.scop.pluto.c
+        echo '===STAGE2-CODE==='
+        sed -n '/omp parallel for/,+2p' stage1.scop.pluto.c
+    } | $FILECHECK --check-prefix READSCOP-MATMUL @top_srcdir@/test/matmul.c
+)
+status=$?
+rm -rf "$tmpdir"
+test $status -eq 0
+check_ret_val_emit_status
+
 cleanup()
 {
 rm -f test_temp_out.pluto.c
