@@ -1485,13 +1485,18 @@ static Dep **deps_read(osl_dependence_p candlDeps, PlutoProg *prog) {
     dep->id = i;
     switch (candl_dep->type) {
     case OSL_DEPENDENCE_RAW:
+    case OSL_DEPENDENCE_RAW_SCALPRIV:
       dep->type = PLUTO_DEP_RAW;
+      break;
     case OSL_DEPENDENCE_WAW:
       dep->type = PLUTO_DEP_WAW;
+      break;
     case OSL_DEPENDENCE_WAR:
       dep->type = PLUTO_DEP_WAR;
+      break;
     case OSL_DEPENDENCE_RAR:
       dep->type = PLUTO_DEP_RAR;
+      break;
     case OSL_UNDEFINED:
     default:
       dep->type = PLUTO_DEP_UNDEFINED;
