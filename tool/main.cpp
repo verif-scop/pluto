@@ -729,6 +729,15 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
   /* Auto transformation */
   if (!options->identity) {
     pluto_auto_transform(prog);
+  } else {
+    /*
+     * Imported schedules initialize every hyperplane as H_LOOP.  The normal
+     * auto-transform path refreshes these classifications, but --identity
+     * skips that path.  Tiling must see the actual scalar hyperplanes so that
+     * it does not strip-mine constant schedule dimensions.
+     */
+    pluto_detect_hyperplane_types(prog);
+    pluto_detect_hyperplane_types_stmtwise(prog);
   }
   double t_t = rtclock() - t_start;
 

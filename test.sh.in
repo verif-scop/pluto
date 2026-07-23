@@ -245,6 +245,23 @@ rm -rf "$tmpdir"
 test $status -eq 0
 check_ret_val_emit_status
 
+# --identity imports a pre-scheduled OpenScop. Scalar hyperplanes in that
+# schedule must remain scalar instead of becoming spurious /32 tile iterators.
+printf '%-50s ' "@top_srcdir@/test/fusion5.c with staged identity tiling"
+tmpdir=$(mktemp -d)
+(
+    cd "$tmpdir" &&
+    @top_builddir@/clan/clan @top_srcdir@/test/fusion5.c -o orig.scop >/dev/null 2>&1 &&
+    cat orig.scop | @top_builddir@/tool/pluto --readscop --silent --notile --noparallel --nointratileopt --nodiamond-tile --noprevector --smartfuse --nounrolljam --rar stdin > stage1.scop &&
+    cat stage1.scop | @top_builddir@/tool/pluto --readscop --silent --identity --tile --noparallel --nointratileopt --nodiamond-tile --noprevector --nounrolljam --rar stdin > stage2.scop &&
+    grep -q 'fk0.*fk1' stage2.scop &&
+    ! grep -q 'fk2' stage2.scop
+)
+status=$?
+rm -rf "$tmpdir"
+test $status -eq 0
+check_ret_val_emit_status
+
 cleanup()
 {
 rm -f test_temp_out.pluto.c
