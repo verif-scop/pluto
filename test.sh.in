@@ -247,6 +247,27 @@ rm -rf "$tmpdir"
 test $status -eq 0
 check_ret_val_emit_status
 
+# Restoring the hyperplane evicted for diamond tiling is correctness-critical,
+# even when the optional intra-tile locality pass is disabled.
+printf '%-50s ' "diamond tiling with --nointratileopt preserves execution"
+tmpdir=$(mktemp -d)
+(
+    cd "$tmpdir" &&
+    cp "$pluto_test_srcdir/test/diamond-nointratile-correctness.c" input.c &&
+    printf '2\n2\n2\n2\n2\n2\n' > tile.sizes &&
+    "$pluto_test_builddir/polycc" --tile --diamond-tile --nointratileopt \
+        --noparallel --noprevector --nounrolljam input.c -o optimized.c \
+        >/dev/null 2>&1 &&
+    @CC@ -O0 input.c -o baseline &&
+    @CC@ -O0 optimized.c -o optimized &&
+    test "$(./baseline)" = 20 &&
+    test "$(./optimized)" = 20
+)
+status=$?
+rm -rf "$tmpdir"
+test $status -eq 0
+check_ret_val_emit_status
+
 # --identity imports a pre-scheduled OpenScop. Scalar hyperplanes in that
 # schedule must remain scalar instead of becoming spurious /32 tile iterators.
 printf '%-50s ' "@top_srcdir@/test/fusion5.c with staged identity tiling"

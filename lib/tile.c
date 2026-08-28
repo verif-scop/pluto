@@ -296,8 +296,10 @@ void pluto_tile(PlutoProg *prog) {
     g_post_tile_dump_hook(prog, g_post_tile_dump_hook_user);
   }
 
-  /* Honor --nointratileopt for the diamond-specific intra-tile reschedule. */
-  if (options->diamondtile && options->intratileopt) {
+  /* Restoring the evicted hyperplane is part of the diamond schedule, not an
+   * optional locality optimization.  Without it, --nointratileopt can change
+   * the program result even when all post-tiling optimizations are disabled. */
+  if (options->diamondtile) {
     int retval;
     retval = pluto_diamond_tile_reschedule(prog);
 
