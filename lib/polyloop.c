@@ -576,7 +576,11 @@ bool is_unroll_jam_profitable(Ploop *loop, const PlutoProg *prog) {
 Ploop **pluto_get_unroll_jam_loops(const PlutoProg *prog,
                                    unsigned *num_ujloops) {
   unsigned num_ibands;
-  Band **ibands = pluto_get_innermost_permutable_bands(prog, 1, &num_ibands);
+  PlutoOptions *options = prog->context->options;
+  unsigned num_tiled_levels =
+      options->tile ? (options->second_level_tile ? 2 : 1) : 0;
+  Band **ibands = pluto_get_innermost_permutable_bands(
+      prog, num_tiled_levels, &num_ibands);
   unsigned num = 0;
   Ploop **ujloops = NULL;
   unsigned nloops = 0;

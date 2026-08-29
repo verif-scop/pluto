@@ -86,7 +86,7 @@ void pluto_mark_parallel(struct clast_stmt *root, const PlutoProg *prog,
          * loop till it succeeds. Hence a worklist based algrithm is necessary.
          */
         if (ninloops == 0 ||
-            inloops[0]->depth > band->loop->depth + band->width) {
+            inloops[0]->depth >= band->loop->depth + band->width) {
           /* No parallel loops in this band. */
           printf("Warning: parallel poly loop not found in AST\n");
           curr_loop = NULL;

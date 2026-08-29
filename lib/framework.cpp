@@ -41,6 +41,9 @@ static int pluto_dep_satisfies_instance(const Dep *dep, const PlutoProg *prog,
                                         unsigned level);
 static int pluto_dep_remove_satisfied_instances(Dep *dep, PlutoProg *prog,
                                                 unsigned level);
+static int pluto_dep_has_negative_instance(const Dep *dep,
+                                           const PlutoProg *prog,
+                                           unsigned level);
 
 static bool is_stmt_in_stmt_list(int stmt_id, const std::vector<Stmt *> &stmts);
 static PlutoConstraints *
@@ -1144,6 +1147,13 @@ int pluto_compute_dep_satisfaction_precise(PlutoProg *prog) {
     dep->satisfaction_level = -1;
 
     for (level = 0; level < prog->num_hyperplanes; level++) {
+      /* Only instances tied at every preceding level reach this point.  A
+       * negative component here is therefore a lexicographic schedule
+       * violation and cannot be repaired by a later positive component. */
+      if (pluto_dep_has_negative_instance(dep, prog, level)) {
+        dep->satvec[level] = 0;
+        break;
+      }
       dep->satvec[level] = pluto_dep_satisfies_instance(dep, prog, level);
       pluto_dep_remove_satisfied_instances(dep, prog, level);
       if (dep->satvec[level]) {
@@ -1168,6 +1178,47 @@ int pluto_compute_dep_satisfaction_precise(PlutoProg *prog) {
   IF_DEBUG(printf("\t %d (out of %d) dep(s) satisfied\n", num_satisfied,
                   prog->ndeps););
   return num_satisfied;
+}
+
+/* Retval: true if an instance that is tied at all preceding levels is ordered
+ * backwards at this level. */
+static int pluto_dep_has_negative_instance(const Dep *dep,
+                                           const PlutoProg *prog,
+                                           unsigned level) {
+  PlutoContext *context = prog->context;
+  Stmt *src_stmt = prog->stmts[dep->src];
+  Stmt *dest_stmt = prog->stmts[dep->dest];
+  int src_dim = src_stmt->dim;
+  int dest_dim = dest_stmt->dim;
+  int npar = prog->npar;
+
+  assert(level < src_stmt->trans->nrows);
+  assert(level < dest_stmt->trans->nrows);
+
+  PlutoConstraints *cst =
+      pluto_constraints_alloc(1 + dep->dpolytope->nrows,
+                              src_dim + dest_dim + npar + 1, context);
+
+  /* phi(src) - phi(dest) >= 1 */
+  int j;
+  cst->is_eq[0] = 0;
+  for (j = 0; j < src_dim; j++)
+    cst->val[0][j] = src_stmt->trans->val[level][j];
+  for (j = src_dim; j < src_dim + dest_dim; j++)
+    cst->val[0][j] = -dest_stmt->trans->val[level][j - src_dim];
+  for (j = src_dim + dest_dim; j < src_dim + dest_dim + npar; j++) {
+    cst->val[0][j] = src_stmt->trans->val[level][j - dest_dim] -
+                     dest_stmt->trans->val[level][j - src_dim];
+  }
+  j = src_dim + dest_dim + npar;
+  cst->val[0][j] = src_stmt->trans->val[level][j - dest_dim] -
+                   dest_stmt->trans->val[level][j - src_dim] - 1;
+  cst->nrows = 1;
+
+  pluto_constraints_intersect_isl(cst, dep->depsat_poly);
+  int retval = !pluto_constraints_is_empty(cst);
+  pluto_constraints_free(cst);
+  return retval;
 }
 
 /* Retval: true if some iterations are satisfied */
