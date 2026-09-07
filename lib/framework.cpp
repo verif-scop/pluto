@@ -1180,6 +1180,203 @@ int pluto_compute_dep_satisfaction_precise(PlutoProg *prog) {
   return num_satisfied;
 }
 
+/* Complete a shared suffix for the diamond schedule and the ordinary rows
+ * restored inside tiles.  Scheduling either view alone can discard an order
+ * needed by the other.  Work on private residual relations so neither the
+ * original dependence domains nor their cached constraints are changed. */
+bool pluto_complete_diamond_schedule(PlutoProg *prog) {
+  PlutoContext *context = prog->context;
+  const unsigned prefix = prog->num_hyperplanes;
+  const int nvar = prog->nvar, npar = prog->npar;
+  const int nstmts = prog->nstmts;
+  std::vector<Dep *> residuals;
+  std::vector<PlutoMatrix *> diamond, ordinary;
+  bool valid = true;
+
+  for (unsigned s = 0; s < prog->nstmts; s++) {
+    Stmt *stmt = prog->stmts[s];
+    diamond.push_back(stmt->trans);
+    PlutoMatrix *view = pluto_matrix_dup(stmt->trans);
+    if (stmt->evicted_hyp)
+      memcpy(view->val[stmt->evicted_hyp_pos], stmt->evicted_hyp->val[0],
+             view->ncols * sizeof(int64_t));
+    ordinary.push_back(view);
+  }
+
+  for (int view = 0; view < 2 && valid; view++) {
+    for (unsigned s = 0; s < prog->nstmts; s++)
+      prog->stmts[s]->trans = view ? ordinary[s] : diamond[s];
+    for (int i = 0; i < prog->ndeps && valid; i++) {
+      Dep *dep = prog->deps[i];
+      if (IS_RAR(dep->type))
+        continue;
+      Dep probe = *dep;
+      probe.depsat_poly = pluto_constraints_dup(dep->dpolytope);
+      for (unsigned row = 0; row < prefix; row++) {
+        if (pluto_dep_has_negative_instance(&probe, prog, row)) {
+          valid = false;
+          break;
+        }
+        pluto_dep_remove_satisfied_instances(&probe, prog, row);
+      }
+      if (valid && !pluto_constraints_is_empty(probe.depsat_poly)) {
+        Dep *residual = (Dep *)calloc(1, sizeof(Dep));
+        residual->src = dep->src;
+        residual->dest = dep->dest;
+        residual->type = dep->type;
+        residual->dpolytope = probe.depsat_poly;
+        residual->bounding_poly = probe.depsat_poly;
+        residuals.push_back(residual);
+      } else {
+        pluto_constraints_free(probe.depsat_poly);
+      }
+    }
+  }
+  for (unsigned s = 0; s < prog->nstmts; s++) {
+    prog->stmts[s]->trans = diamond[s];
+    pluto_matrix_free(ordinary[s]);
+  }
+
+  /* Each accepted row strictly orders at least one whole residual relation.
+   * Unlike loop discovery, completion does not require linear independence. */
+  while (valid && !residuals.empty()) {
+    PlutoConstraints *base = pluto_constraints_alloc(1, CST_WIDTH, context);
+    for (Dep *dep : residuals) {
+      compute_permutability_constraints_dep(dep, prog);
+      pluto_constraints_add(base, dep->cst);
+    }
+    if (context->options->coeff_bound >= 0)
+      for (int col = npar + 1; col < (int)base->ncols - 1; col++)
+        pluto_constraints_add_ub(base, col, context->options->coeff_bound);
+    int64_t *solution = NULL;
+    for (Dep *dep : residuals) {
+      PlutoConstraints *candidate = pluto_constraints_dup(base);
+      PlutoConstraints *strict = get_feautrier_schedule_constraints_dep(dep, prog);
+      pluto_constraints_add(candidate, strict);
+      pluto_constraints_free(strict);
+      /* This local problem has the standard CST_WIDTH layout, independent
+       * of the optional connected-component objective in loop discovery. */
+      solution = pluto_constraints_lexmin(candidate, false);
+      pluto_constraints_free(candidate);
+      if (solution)
+        break;
+    }
+    pluto_constraints_free(base);
+    if (!solution) {
+      valid = false;
+      break;
+    }
+
+    unsigned row = prog->num_hyperplanes;
+    bool scalar = true;
+    pluto_prog_add_hyperplane(prog, row, H_SCALAR);
+    for (unsigned s = 0; s < prog->nstmts; s++) {
+      Stmt *stmt = prog->stmts[s];
+      pluto_stmt_add_hyperplane(stmt, H_UNKNOWN, row);
+      for (int col = 0; col < nvar; col++)
+        stmt->trans->val[row][col] = solution[npar + 1 + s * (nvar + 1) + col];
+      for (int col = nvar; col < nvar + npar; col++)
+        stmt->trans->val[row][col] = 0;
+      stmt->trans->val[row][nvar + npar] =
+          solution[npar + 1 + s * (nvar + 1) + nvar];
+      bool stmt_scalar = pluto_is_hyperplane_scalar(stmt, row);
+      stmt->hyp_types[row] = stmt_scalar ? H_SCALAR : H_LOOP;
+      scalar &= stmt_scalar;
+    }
+    prog->hProps[row].type = scalar ? H_SCALAR : H_LOOP;
+    free(solution);
+    IF_DEBUG(printf("[pluto] Joint diamond completion row\n"););
+    IF_DEBUG(pluto_transformation_print_level(prog, row););
+
+    unsigned remaining = residuals.size();
+    for (auto it = residuals.begin(); it != residuals.end();) {
+      Dep *dep = *it;
+      dep->depsat_poly = dep->dpolytope;
+      if (pluto_dep_has_negative_instance(dep, prog, row)) {
+        valid = false;
+        break;
+      }
+      pluto_dep_remove_satisfied_instances(dep, prog, row);
+      pluto_constraints_free(dep->cst);
+      pluto_constraints_free(dep->bounding_cst);
+      dep->cst = dep->bounding_cst = NULL;
+      if (pluto_constraints_is_empty(dep->dpolytope)) {
+        pluto_constraints_free(dep->dpolytope);
+        free(dep);
+        it = residuals.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    if (residuals.size() >= remaining)
+      valid = false;
+  }
+  /* Once both views strictly order all dependencies, extra minor coordinates
+   * cannot change those orders.  Complete any remaining per-statement rank
+   * needed by code generation; cone discovery does not prove equal row spans
+   * for its general hyperplane-replacement case. */
+  auto needs_rank = [](Stmt *stmt) {
+    bool needs = pluto_stmt_get_num_ind_hyps(stmt) < stmt->dim_orig;
+    if (stmt->evicted_hyp) {
+      unsigned pos = stmt->evicted_hyp_pos;
+      for (unsigned col = 0; col < stmt->trans->ncols; col++)
+        std::swap(stmt->trans->val[pos][col], stmt->evicted_hyp->val[0][col]);
+      needs |= pluto_stmt_get_num_ind_hyps(stmt) < stmt->dim_orig;
+      for (unsigned col = 0; col < stmt->trans->ncols; col++)
+        std::swap(stmt->trans->val[pos][col], stmt->evicted_hyp->val[0][col]);
+    }
+    return needs;
+  };
+  for (int col = 0; valid && col < nvar; col++) {
+    std::vector<bool> add;
+    bool any = false;
+    for (unsigned s = 0; s < prog->nstmts; s++) {
+      bool needed = needs_rank(prog->stmts[s]) && prog->stmts[s]->is_orig_loop[col];
+      add.push_back(needed);
+      any |= needed;
+    }
+    if (!any)
+      continue;
+    unsigned row = prog->num_hyperplanes;
+    pluto_prog_add_hyperplane(prog, row, H_LOOP);
+    for (unsigned s = 0; s < prog->nstmts; s++) {
+      Stmt *stmt = prog->stmts[s];
+      pluto_stmt_add_hyperplane(stmt, add[s] ? H_LOOP : H_SCALAR, row);
+      memset(stmt->trans->val[row], 0, stmt->trans->ncols * sizeof(int64_t));
+      if (add[s])
+        stmt->trans->val[row][col] = 1;
+    }
+  }
+  for (unsigned s = 0; valid && s < prog->nstmts; s++)
+    valid &= !needs_rank(prog->stmts[s]);
+
+  for (Dep *dep : residuals) {
+    pluto_constraints_free(dep->cst);
+    pluto_constraints_free(dep->bounding_cst);
+    pluto_constraints_free(dep->dpolytope);
+    free(dep);
+  }
+  if (!valid) {
+    /* Cancel this diamond proposal and resume ordinary scheduling. */
+    prog->num_hyperplanes = prefix;
+    for (unsigned s = 0; s < prog->nstmts; s++) {
+      Stmt *stmt = prog->stmts[s];
+      stmt->trans->nrows = prefix;
+      if (stmt->evicted_hyp) {
+        memcpy(stmt->trans->val[stmt->evicted_hyp_pos], stmt->evicted_hyp->val[0],
+               stmt->trans->ncols * sizeof(int64_t));
+        pluto_matrix_free(stmt->evicted_hyp);
+        stmt->evicted_hyp = NULL;
+      }
+    }
+    prog->is_diamond_tiled = false;
+    IF_DEBUG(printf("[pluto] No joint diamond completion; ordinary scheduling\n"););
+  }
+  pluto_compute_dep_directions(prog);
+  pluto_compute_dep_satisfaction_precise(prog);
+  return valid;
+}
+
 /* Retval: true if an instance that is tied at all preceding levels is ordered
  * backwards at this level. */
 static int pluto_dep_has_negative_instance(const Dep *dep,

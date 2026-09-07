@@ -1483,6 +1483,23 @@ static void copy_hyperplane(int64_t *h1, int64_t *h2, int ncols) {
   }
 }
 
+/* During automatic scheduling, exchange the ordinary row with its diamond
+ * replacement.  No tile dimensions have been introduced yet. */
+static void swap_diamond_scheduling_rows(PlutoProg *prog) {
+  for (unsigned i = 0; i < prog->nstmts; i++) {
+    Stmt *stmt = prog->stmts[i];
+    PlutoMatrix *saved = stmt->evicted_hyp;
+    if (!saved)
+      continue;
+    assert(saved->ncols == stmt->trans->ncols);
+    for (unsigned j = 0; j < saved->ncols; j++) {
+      int64_t tmp = saved->val[0][j];
+      saved->val[0][j] = stmt->trans->val[stmt->evicted_hyp_pos][j];
+      stmt->trans->val[stmt->evicted_hyp_pos][j] = tmp;
+    }
+  }
+}
+
 /**
  * Top-level automatic transformation algoritm. Returns 0 on success.
  *
@@ -1676,6 +1693,9 @@ int pluto_auto_transform(PlutoProg *prog) {
     pluto_dep_satisfaction_reset(prog);
     if (is_skewed && options->diamondtile) {
       conc_start_found = pluto_diamond_tile(prog);
+      if (conc_start_found)
+        conc_start_found = pluto_complete_diamond_schedule(prog);
+      prog->is_diamond_tiled = conc_start_found;
     }
     /* If there are any unsatisfied deps, they have to be
      * distributed at the inner most level. */
@@ -1743,9 +1763,21 @@ int pluto_auto_transform(PlutoProg *prog) {
         if (options->diamondtile && nsols >= 2 && !conc_start_found) {
           conc_start_found = pluto_diamond_tile(prog);
           prog->is_diamond_tiled = conc_start_found;
+          if (conc_start_found)
+            conc_start_found = pluto_complete_diamond_schedule(prog);
+          prog->is_diamond_tiled = conc_start_found;
+          num_ind_sols_found = pluto_get_max_ind_hyps(prog);
+          /* A completion row can increase the ranks of only some statements.
+           * Continue with per-statement independence, not EAGER's equal-rank
+           * progress invariant. */
+          if (conc_start_found)
+            hyp_search_mode = LAZY;
         }
 
-        for (j = 0; j < nsols; j++) {
+        if (conc_start_found) {
+          pluto_compute_dep_satisfaction_precise(prog);
+          ddg_update(ddg, prog);
+        } else for (j = 0; j < nsols; j++) {
           /* Mark dependences satisfied by this solution */
           dep_satisfaction_update(prog, stmts[0]->trans->nrows - nsols + j);
           ddg_update(ddg, prog);
@@ -1821,6 +1853,18 @@ int pluto_auto_transform(PlutoProg *prog) {
       depth++;
     } while (!pluto_transformations_full_ranked(prog) ||
              !deps_satisfaction_check(prog));
+  }
+
+  if (conc_start_found) {
+    /* Check both schedules independently; leave diamond coordinates active. */
+    pluto_compute_dep_satisfaction_precise(prog);
+    assert(deps_satisfaction_check(prog));
+    swap_diamond_scheduling_rows(prog);
+    pluto_compute_dep_satisfaction_precise(prog);
+    assert(deps_satisfaction_check(prog));
+    assert(pluto_transformations_full_ranked(prog));
+    swap_diamond_scheduling_rows(prog);
+    pluto_compute_dep_satisfaction_precise(prog);
   }
 
   /* Deallocate the fusion conflict graph */

@@ -496,6 +496,7 @@ void dep_free(Dep *);
 bool dep_satisfaction_test(Dep *dep, PlutoProg *prog, unsigned level);
 void pluto_compute_dep_satisfaction(PlutoProg *prog);
 int pluto_compute_dep_satisfaction_precise(PlutoProg *prog);
+bool pluto_complete_diamond_schedule(PlutoProg *prog);
 bool dep_is_satisfied(Dep *dep);
 void pluto_detect_transformation_properties(PlutoProg *prog);
 void pluto_detect_hyperplane_types_stmtwise(PlutoProg *prog);

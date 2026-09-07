@@ -127,6 +127,14 @@ void pluto_tile_band(PlutoProg *prog, Band *band, int *tile_sizes) {
   }
 
   for (unsigned depth = firstD; depth <= lastD; depth++) {
+    /* A band coordinate is tiled consistently across its statements.  If it
+     * varies in any statement, a scalar occurrence in another statement has
+     * a singleton tile coordinate, not a copy of the unscaled scalar row. */
+    bool tile_coordinate = false;
+    for (unsigned s = 0; s < band->loop->nstmts; s++) {
+      tile_coordinate |=
+          band->loop->stmts[s]->hyp_types[depth + depth - firstD] != H_SCALAR;
+    }
     for (unsigned s = 0; s < band->loop->nstmts; s++) {
       Stmt *stmt = band->loop->stmts[s];
       /* 1. Specify tiles in the original domain.
@@ -137,14 +145,15 @@ void pluto_tile_band(PlutoProg *prog, Band *band, int *tile_sizes) {
       sprintf(iter, "zT%d", stmt->dim);
 
       PlutoHypType hyp_type =
-          (stmt->hyp_types[depth + depth - firstD] == H_SCALAR)
+          (stmt->hyp_types[depth + depth - firstD] == H_SCALAR &&
+           !tile_coordinate)
               ? H_SCALAR
               : H_TILE_SPACE_LOOP;
 
       /* 1.2 Specify tile shapes in the original domain */
       if (hyp_type != H_SCALAR) {
         assert(tile_sizes[depth - firstD] >= 1);
-        /* Domain supernodes aren't added for scalar dimensions */
+        /* Include constant occurrences of a tiled band coordinate. */
         pluto_stmt_add_dim(stmt, num_domain_supernodes[s], depth, iter,
                            hyp_type, prog);
         /* Add relation b/w tile space variable and intra-tile variables like
@@ -446,6 +455,33 @@ bool pluto_create_tile_schedule_band(PlutoProg *prog, Band *band) {
   int first = band->loop->depth;
 
   if (!options->innerpar) {
+    /* Tiling bands may span scalar phases: a dependence carried by such a
+     * phase is allowed to have negative components in later loop dimensions.
+     * Requiring non-negative loop components is a conservative sufficient
+     * condition for moving their sum before the phase.  Do not reuse the
+     * weaker tiling condition for this wavefront transformation. */
+    for (int i = 0; i < prog->ndeps; i++) {
+      Dep *dep = prog->deps[i];
+      if (IS_RAR(dep->type))
+        continue;
+      if (!pluto_stmt_is_member_of(prog->stmts[dep->src]->id, band->loop->stmts,
+                                   band->loop->nstmts) ||
+          !pluto_stmt_is_member_of(prog->stmts[dep->dest]->id, band->loop->stmts,
+                                   band->loop->nstmts))
+        continue;
+      /* An unknown (-1) satisfaction level is not an outer carrying level.
+       * Leave the input schedule unchanged if the precondition is unknown. */
+      if (!dep->satisfied || dep->satisfaction_level < 0)
+        return false;
+      if (dep->satisfaction_level < first)
+        continue;
+      for (unsigned k = 0; k <= nip_dims; k++) {
+        DepDir direction = dep->dirvec[loop_depths[k]];
+        if (direction == DEP_MINUS || direction == DEP_STAR)
+          return false;
+      }
+    }
+
     /* Create the wavefront */
     for (unsigned i = 0; i < band->loop->nstmts; i++) {
       Stmt *stmt = band->loop->stmts[i];

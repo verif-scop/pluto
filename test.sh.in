@@ -255,13 +255,15 @@ tmpdir=$(mktemp -d)
     cd "$tmpdir" &&
     cp "$pluto_test_srcdir/test/diamond-nointratile-correctness.c" input.c &&
     printf '2\n2\n2\n2\n2\n2\n' > tile.sizes &&
-    "$pluto_test_builddir/polycc" --tile --diamond-tile --nointratileopt \
-        --noparallel --noprevector --nounrolljam input.c -o optimized.c \
-        >/dev/null 2>&1 &&
     @CC@ -O0 input.c -o baseline &&
-    @CC@ -O0 optimized.c -o optimized &&
     test "$(./baseline)" = 20 &&
-    test "$(./optimized)" = 20
+    for rar in "" --rar; do
+        "$pluto_test_builddir/polycc" --tile --diamond-tile --nointratileopt \
+            --noparallel --noprevector --nounrolljam $rar input.c -o optimized.c \
+            >/dev/null 2>&1 &&
+        @CC@ -O0 optimized.c -o optimized &&
+        test "$(./optimized)" = 20 || exit 1
+    done
 )
 status=$?
 rm -rf "$tmpdir"
