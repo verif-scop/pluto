@@ -2001,9 +2001,7 @@ void ddg_compute_cc(PlutoProg *prog) {
       num_cc++;
       gU->vertices[i].cc_id = cc_id;
       dfs_vertex(gU, &gU->vertices[i], &time);
-      gU->vertices[i].cc_id = cc_id;
     }
-    gU->vertices[i].cc_id = cc_id;
     g->vertices[i].cc_id = gU->vertices[i].cc_id;
     stmt_id = g->vertices[i].id;
     assert(stmt_id == i);

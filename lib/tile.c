@@ -464,18 +464,22 @@ bool pluto_create_tile_schedule_band(PlutoProg *prog, Band *band) {
    * a complete complex dep satisfaction check since we know that the tile
    * schedule will satisfy the dependence satisfied by all the dimensions
    * that is a sum of) */
-  for (int i = 0; i < prog->ndeps; i++) {
-    Dep *dep = prog->deps[i];
-    /* satvec s should have been computed */
-    if (IS_RAR(dep->type))
-      continue;
-    if (pluto_stmt_is_member_of(prog->stmts[dep->src]->id, band->loop->stmts,
-                                band->loop->nstmts) &&
-        pluto_stmt_is_member_of(prog->stmts[dep->dest]->id, band->loop->stmts,
-                                band->loop->nstmts)) {
-      for (unsigned k = 1; k <= nip_dims; k++) {
-        dep->satvec[first] |= dep->satvec[loop_depths[k]];
-        dep->satvec[loop_depths[k]] = 0;
+  if (!options->innerpar) {
+    for (int i = 0; i < prog->ndeps; i++) {
+      Dep *dep = prog->deps[i];
+      /* satvec s should have been computed */
+      if (IS_RAR(dep->type))
+        continue;
+      if (pluto_stmt_is_member_of(prog->stmts[dep->src]->id,
+                                  band->loop->stmts,
+                                  band->loop->nstmts) &&
+          pluto_stmt_is_member_of(prog->stmts[dep->dest]->id,
+                                  band->loop->stmts,
+                                  band->loop->nstmts)) {
+        for (unsigned k = 1; k <= nip_dims; k++) {
+          dep->satvec[first] |= dep->satvec[loop_depths[k]];
+          dep->satvec[loop_depths[k]] = 0;
+        }
       }
     }
   }

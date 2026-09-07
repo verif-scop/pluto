@@ -89,6 +89,13 @@ static int pluto_schedule_prog(PlutoProg *prog) {
     }
   }
 
+  pluto_compute_dep_satisfaction_precise(prog);
+  if (!deps_satisfaction_check(prog)) {
+    fprintf(stderr,
+            "[Pluto] final schedule violates a dependence; refusing result\n");
+    return 1;
+  }
+
   if (options->parallel && !options->silent) {
     unsigned nploops;
     Ploop **ploops = pluto_get_dom_parallel_loops(prog, &nploops);

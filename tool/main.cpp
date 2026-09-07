@@ -796,6 +796,17 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
     }
   }
 
+  /* Do not trust incremental satisfaction metadata as a final legality
+   * decision.  Recompute it over the complete lexicographic schedule before
+   * exposing loop properties or generating code. */
+  pluto_compute_dep_satisfaction_precise(prog);
+  if (!deps_satisfaction_check(prog)) {
+    fprintf(stderr,
+            "[pluto] ERROR: final schedule violates a dependence; refusing "
+            "code generation\n");
+    return 1;
+  }
+
   double t_c = 0.0;
 
   if (!options->pet && !strcmp(srcFileName, "stdin")) {
