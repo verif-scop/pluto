@@ -1,60 +1,64 @@
-# Pluto
+# Pluto for PolCert
 
-This fork of the original Pluto repository (https://github.com/bondhugula/pluto) is the customized version especially for the artifact of "Verified Validator for Polyhedral Scheduling" (not public yet). Notice that this fork is made in June 15, 2023.
+This fork of [Pluto](https://github.com/bondhugula/pluto) supplies optimization
+proposals to [PolCert](https://github.com/verif-scop/PolCert). It exports OpenScop
+models at transformation boundaries and includes correctness fixes for affine
+scheduling, tiling, and loop annotations. PolCert validates the proposals;
+Pluto's optimization heuristics are not verified.
 
-Following changes are made:
-1. adding `--dumpscop` option (for non-pet frontend), to dump scheduled polyhedral model in openscop format (with `.afterscheduling.scop` suffix).
-2. `--dumpscop` will also dump polyhedral model for the input scop (just after polyhedral extraction, before any further scheduling) in openscop format (with `.beforescheduling.scop`), no matter `--readscop` is enabled or not.
-3. redirect piplib and cloog to texlive-free upstream...
+The `master` branch contains the repaired compiler. The [`buggy`](https://github.com/verif-scop/pluto/tree/buggy)
+branch preserves a historical compiler for regression tests and documents its
+known defects. Use `master` for optimization.
 
-The dumped files are used for validation. This minimal-changed fork is still under the MIT LICENSE. 
+## Build and test
 
-## FORK FOR THE VERIFIED VALIDATOR
+The build requires a C/C++ toolchain, Autoconf, Automake, Libtool, Flex, Bison,
+GMP, GLPK, and LLVM/Clang 10. The [Dockerfile](Dockerfile) installs the system
+dependencies. Initialize the pinned submodules before building:
 
-The verified validator is proven in Coq, and is used to check two polyhedral models have same "semantics". Two models should differ only in the scheduling, so the validator is "scheduling validator". Advanced polyhedral techniques like tiling are not supported (actually, scheduling and tiling are two different phrases in polyhedral compilation, so they should also be validated in two phrases).
-
-We use following options for pluto scheduling. It avoids not-supported unrolling/tiling/parallization/vectorization (those will change "domain" of polyhedral model, split the "instruction", complicate the "semantics", not supported yet), but enable basic scheduling like fusion/unfusion/interchange/... (note that pluto's scheduler find a "optimized" execution order for the instances according to a cost function, and therefore the scheduling result is a composition of commonsense loop transformations). We also enable "--rar" for read-read dependences.
-
-```
-pluto --dumpscop --nointratileopt --nodiamond-tile --noprevector --smartfuse --nounrolljam --noparallel --notile --rar covcol.c
-```
-
-Only with sequential "reordering/scheduling", the final model could gain significant speed up because of locality optimization. [WIP, covcol, gemver]
-
-
-## INSTALLING PLUTO
-
-We refer you to the [Dockerfile](./Dockerfile) for the step-by-step installation.
-
-```
-sudo docker build . -t pluto
-# this may take 30 min, decided by your network condition
-# Or you pull the image directly: docker pull hughshine/pluto-verif:latest
-sudo docker run -ti --rm pluto
-# open a container for testing (like `make test` in it) (and it will be removed when you exit)
-```
-
-Though the newest pluto repo has revised installing instructions, but we recommend to follow the following. Due to time limit, we only test on Ubuntu 20.04.2 LTS, but we believe it should run on similar environments.
-
-1. install `autoconf`, `automake`, and `libtool`.
-2. install `llvm-10-dev`, `libclang-10-dev`. 
-3. `update-alternative` your `FileCheck-10` to `FileCheck` and `llvm-config-10` to `llvm-config`
-4. install `gmp`, `texinfo`, `libtool-bin`...
-
-### BUILDING PLUTO
-
-```shell
-git clone https://github.com/verif-scop/pluto.git
-cd pluto/
-git submodule init
-git submodule update
+```sh
+git submodule update --init --recursive
 ./autogen.sh
-./configure [--enable-debug] [--with-clang-prefix=<clang headers/libs location>]
-# Example: on an Ubuntu: --with-clang-prefix=/usr/lib/llvm-10. Emit options for default location
-make
+./configure --enable-glpk --with-glpk-prefix=/usr
+make -j2
 make test
-# You should see all 65 tests are passed.
-# if only test_libpluto and unit_tests not pass, dynamic lib are not correctly configured. You should clean the environment and rebuild.
-make install
-# install pluto to PATH
 ```
+
+`tool/pluto` transforms a polyhedral model; `polycc` extracts a C loop region,
+runs Pluto, and generates C. Run `./polycc --help` for optimization flags.
+
+## Transformation boundaries
+
+With the Clan or OpenScop frontend, `--dumpscop` exports these files:
+
+| Suffix | Model |
+| --- | --- |
+| `.beforescheduling.scop` | Input before affine scheduling |
+| `.midtransform.scop` | Affine schedule before tiling |
+| `.posttile.scop` | Tiled model before subsequent affine transformations |
+| `.afterscheduling.scop` | Final polyhedral model |
+
+The post-tile file is emitted when tiling runs. These boundaries let PolCert
+check affine scheduling and tiling separately. Diamond tiling must expose a
+legal tiled model before restoring an evicted hyperplane or applying wavefront
+scheduling. The PET frontend does not support these OpenScop exports.
+
+For example:
+
+```sh
+./tool/pluto --dumpscop --tile --diamond-tile --nointratileopt \
+  --noparallel --noprevector --nounrolljam test/diamond-nointratile-correctness.c
+```
+
+`--nointratileopt` disables optional locality optimization, not the restoration
+needed for a legal diamond schedule. `--rar` adds read–read relations to the
+scheduler; it is not required by PolCert's dependence checks.
+
+## Correctness regressions
+
+[FIXES.md](FIXES.md) summarizes the repairs. `make test` includes staged
+OpenScop and diamond execution regressions. PolCert's
+`tools/pluto_bugs/` tests additionally check the exported phase boundaries,
+complete output states, and rejection of historical invalid proposals.
+
+This fork retains Pluto's [license](LICENSE).
