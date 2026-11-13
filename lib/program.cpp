@@ -396,6 +396,20 @@ static isl_stat basic_map_extract_dep(__isl_take isl_basic_map *bmap,
   }
   dep->dest = atoi(isl_space_get_tuple_name(space, isl_dim_out) + 2);
   dep->dpolytope = isl_basic_map_to_pluto_constraints(bmap, info->context);
+  /* isl_basic_map_remove_divs above finalizes the map, and isl's
+   * simplification can reintroduce existentially quantified variables, e.g.
+   * for a parity condition on a parameter implied by 2i = N - 1. The
+   * conversion keeps them as extra columns, which breaks the column layout
+   * expected below. Project them out (rational over-approximation, as
+   * intended by the remove_divs call). */
+  {
+    isl_size n_div = isl_basic_map_dim(bmap, isl_dim_div);
+    if (n_div > 0) {
+      isl_size n_in = isl_basic_map_dim(bmap, isl_dim_in);
+      isl_size n_out = isl_basic_map_dim(bmap, isl_dim_out);
+      pluto_constraints_project_out(dep->dpolytope, n_in + n_out, n_div);
+    }
+  }
   dep->bounding_poly = pluto_constraints_dup(dep->dpolytope);
   isl_space_free(space);
 

@@ -54,6 +54,7 @@ TESTS="\
   @top_srcdir@/test/negparam.c \
   @top_srcdir@/test/nodep.c \
   @top_srcdir@/test/noloop.c \
+  @top_srcdir@/test/parity-div-dep.c \
   @top_srcdir@/test/polynomial.c \
   @top_srcdir@/test/seidel.c \
   @top_srcdir@/test/seq.c \
@@ -110,7 +111,8 @@ fi
 
 TESTS_TILE_PARALLEL="\
   @top_srcdir@/test/dep-1,1.c \
-  @top_srcdir@/test/diamond-tile-example.c
+  @top_srcdir@/test/diamond-tile-example.c \
+  @top_srcdir@/test/parity-div-dep.c
   "
 echo -e "\nTest without pet frontend but with tiling / parallelization"
 echo "============================================================"

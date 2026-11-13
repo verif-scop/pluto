@@ -12,6 +12,7 @@ baseline `6f43860b6c4cddeeca09189bf3073f05b78b14a5`.
 | Mixed-depth tiling | Transform constant coordinates consistently with the tiled band, preserving dependences to statements outside its loop nest. |
 | Diamond tiling | Restore evicted hyperplanes even with `--nointratileopt`; complete dependent statements' schedules jointly rather than choosing incompatible per-statement tie breakers. |
 | Wavefront scheduling | Preserve scalar phase coordinates when extending a wavefront across mixed-depth statements. |
+| Dependence extraction | Project out existentially quantified variables that isl reintroduces after removing divisions, such as a parameter parity condition, instead of aborting on the extra constraint column. |
 
 Joint diamond completion enforces the remaining dependence constraints. Adding
 read–read relations with `--rar` must not cause dependent instances to receive
